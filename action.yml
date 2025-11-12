@@ -1,0 +1,55 @@
+name: 'Find and Copy Files'
+description: 'Find files matching patterns and copy them with renamed names'
+
+inputs:
+  artifacts_path:
+    description: 'Path to search for artifacts'
+    required: true
+    default: '${{ github.workspace }}/artifacts/bin/'
+  
+  files:
+    description: 'JSON array of file configs: [{search: "pattern", name: "output_name"}, ...]'
+    required: true
+
+  output_directory:
+    description: 'Directory to copy files to'
+    required: true
+    default: '${{ github.workspace }}/release-assets'
+
+outputs:
+  found_files:
+    description: 'JSON array of found and copied files'
+    value: ${{ steps.find_files.outputs.found_files }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Find and copy files
+      id: find_files
+      shell: bash
+      run: |
+        set -e
+        
+        ARTIFACTS_PATH="${{ inputs.artifacts_path }}"
+        OUTPUT_DIR="${{ inputs.output_directory }}"
+        FILES_JSON='${{ inputs.files }}'
+        
+        mkdir -p "$OUTPUT_DIR"
+        FOUND_FILES="[]"
+        
+        echo "$FILES_JSON" | jq -c '.[]' | while read -r config; do
+          SEARCH_PATTERN=$(echo "$config" | jq -r '.search')
+          OUTPUT_NAME=$(echo "$config" | jq -r '.name')
+          
+          FILE_PATH=$(find "$ARTIFACTS_PATH" -name "$SEARCH_PATTERN" -type f | head -1)
+          
+          if [ -z "$FILE_PATH" ]; then
+            echo "❌ No file found matching: $SEARCH_PATTERN"
+            exit 1
+          fi
+          
+          cp "$FILE_PATH" "$OUTPUT_DIR/$OUTPUT_NAME"
+          echo "✅ Copied $(basename "$FILE_PATH") → $OUTPUT_NAME"
+        done
+        
+        echo "found_files=$(ls -1 "$OUTPUT_DIR" | jq -R -s -c 'split("\n")[:-1]')" >> $GITHUB_OUTPUT
